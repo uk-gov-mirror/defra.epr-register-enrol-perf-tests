@@ -1052,6 +1052,455 @@ vars.put('upload_file_path', copy.absolutePath)</stringProp>
               <stringProp name="RegexExtractor.match_no">1</stringProp>
             </RegexExtractor>
             <hashTree/>
+            <!-- JSR223PostProcessor, not a second RegexExtractor (see Extract
+                 siteId below). Collects each site's Change link id
+                 (orsEditId_1..n); interim-site edit links are excluded. -->
+            <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor"
+                                 testname="Extract orsEditId (all sites)">
+              <stringProp name="scriptLanguage">groovy</stringProp>
+              <stringProp name="script">def m = prev.getResponseDataAsString() =~ /select-overseas-sites\/[^\/]+\/edit\/(\d+)"/
+def seen = new LinkedHashSet()
+while (m.find()) {
+    seen.add(m.group(1))
+}
+def count = 0
+for (id in seen) {
+    count++
+    vars.put('orsEditId_' + count, id)
+}
+vars.put('orsEditId_matchNr', count.toString())</stringProp>
+            </JSR223PostProcessor>
+            <hashTree/>
+          </hashTree>
+
+          <!-- Complete every overseas site (RA-597). Since 2026-10-08 the
+               frontend rejects "continue" on select-overseas-sites with 400
+               "Complete the missing details for ..." while any site in the
+               application fails the add-overseas-site wizard rules, and the
+               PerfTest Exporter sites come from the stub Re/Ex with only a
+               name and country. So each site goes through its Change link
+               and the wizard steps a real operator would fill in, keeping
+               its own country, then check-your-answers is confirmed. -->
+          <ForeachController guiclass="ForeachControlPanel" testclass="ForeachController"
+                              testname="ForEach overseas site: complete missing details">
+            <stringProp name="ForeachController.inputVal">orsEditId</stringProp>
+            <stringProp name="ForeachController.returnVal">currentOrsEditId</stringProp>
+            <boolProp name="ForeachController.useSeparator">true</boolProp>
+          </ForeachController>
+          <hashTree>
+
+            <!-- 22b1 GET the site's Change link; seeds the wizard session from the saved site and redirects to check-your-answers -->
+            <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                              testname="22b1 GET select-overseas-sites edit (check-your-answers)">
+              <stringProp name="HTTPSampler.path">/accreditation/select-overseas-sites/${applicationId}/edit/${currentOrsEditId}</stringProp>
+              <stringProp name="HTTPSampler.method">GET</stringProp>
+              <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+            </HTTPSamplerProxy>
+            <hashTree>
+              <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                                 testname="Assert 200">
+                <collectionProp name="Asserion.test_strings">
+                  <stringProp name="200">200</stringProp>
+                </collectionProp>
+                <intProp name="Assertion.test_type">2</intProp>
+                <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+              </ResponseAssertion>
+              <hashTree/>
+              <RegexExtractor guiclass="RegexExtractorGui" testclass="RegexExtractor"
+                              testname="Extract crumb_token">
+                <stringProp name="RegexExtractor.useHeaders">false</stringProp>
+                <stringProp name="RegexExtractor.refname">crumb_token</stringProp>
+                <stringProp name="RegexExtractor.regex">name="crumb"\s+value="([^"]+)"</stringProp>
+                <stringProp name="RegexExtractor.template">$1$</stringProp>
+                <stringProp name="RegexExtractor.default">CRUMB_NOT_FOUND</stringProp>
+                <stringProp name="RegexExtractor.match_no">1</stringProp>
+              </RegexExtractor>
+              <hashTree/>
+            </hashTree>
+
+            <!-- 22b2 GET site-location; prefilled, read back the site's country -->
+            <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                              testname="22b2 GET add-overseas-site site-location">
+              <stringProp name="HTTPSampler.path">/accreditation/add-overseas-site/${applicationId}/site-location</stringProp>
+              <stringProp name="HTTPSampler.method">GET</stringProp>
+              <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+            </HTTPSamplerProxy>
+            <hashTree>
+              <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                                 testname="Assert 200">
+                <collectionProp name="Asserion.test_strings">
+                  <stringProp name="200">200</stringProp>
+                </collectionProp>
+                <intProp name="Assertion.test_type">2</intProp>
+                <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+              </ResponseAssertion>
+              <hashTree/>
+              <RegexExtractor guiclass="RegexExtractorGui" testclass="RegexExtractor"
+                              testname="Extract crumb_token">
+                <stringProp name="RegexExtractor.useHeaders">false</stringProp>
+                <stringProp name="RegexExtractor.refname">crumb_token</stringProp>
+                <stringProp name="RegexExtractor.regex">name="crumb"\s+value="([^"]+)"</stringProp>
+                <stringProp name="RegexExtractor.template">$1$</stringProp>
+                <stringProp name="RegexExtractor.default">CRUMB_NOT_FOUND</stringProp>
+                <stringProp name="RegexExtractor.match_no">1</stringProp>
+              </RegexExtractor>
+              <hashTree/>
+              <!-- JSR223PostProcessor, not a second RegexExtractor (see
+                   Extract siteId below): keeps the site on its own Re/Ex
+                   country, which decides its EU/OECD and BES evidence status. -->
+              <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor"
+                                   testname="Extract ors_country (selected option)">
+                <stringProp name="scriptLanguage">groovy</stringProp>
+                <stringProp name="script">def m = prev.getResponseDataAsString() =~ /&lt;option value="([^"]+)" selected&gt;/
+vars.put('ors_country', m.find() ? m.group(1) : 'COUNTRY_NOT_FOUND')</stringProp>
+              </JSR223PostProcessor>
+              <hashTree/>
+            </hashTree>
+
+            <!-- 22b3 POST site-location; redirects to site-contact-details. Coordinates need 4 to 10 decimal places -->
+            <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                              testname="22b3 POST add-overseas-site site-location">
+              <stringProp name="HTTPSampler.path">/accreditation/add-overseas-site/${applicationId}/site-location</stringProp>
+              <stringProp name="HTTPSampler.method">POST</stringProp>
+              <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+              <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+                <collectionProp name="Arguments.arguments">
+                  <elementProp name="crumb" elementType="HTTPArgument">
+                    <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                    <stringProp name="Argument.name">crumb</stringProp>
+                    <stringProp name="Argument.value">${crumb_token}</stringProp>
+                  </elementProp>
+                  <elementProp name="addressLine1" elementType="HTTPArgument">
+                    <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                    <stringProp name="Argument.name">addressLine1</stringProp>
+                    <stringProp name="Argument.value">Unit ${currentOrsEditId} Industrial Estate</stringProp>
+                  </elementProp>
+                  <elementProp name="townOrCity" elementType="HTTPArgument">
+                    <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                    <stringProp name="Argument.name">townOrCity</stringProp>
+                    <stringProp name="Argument.value">Hamburg</stringProp>
+                  </elementProp>
+                  <elementProp name="country" elementType="HTTPArgument">
+                    <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                    <stringProp name="Argument.name">country</stringProp>
+                    <stringProp name="Argument.value">${ors_country}</stringProp>
+                  </elementProp>
+                  <elementProp name="coordinates" elementType="HTTPArgument">
+                    <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                    <stringProp name="Argument.name">coordinates</stringProp>
+                    <stringProp name="Argument.value">53.5511,9.9937</stringProp>
+                  </elementProp>
+                </collectionProp>
+              </elementProp>
+            </HTTPSamplerProxy>
+            <hashTree>
+              <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                                 testname="Assert 200">
+                <collectionProp name="Asserion.test_strings">
+                  <stringProp name="200">200</stringProp>
+                </collectionProp>
+                <intProp name="Assertion.test_type">2</intProp>
+                <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+              </ResponseAssertion>
+              <hashTree/>
+              <RegexExtractor guiclass="RegexExtractorGui" testclass="RegexExtractor"
+                              testname="Extract crumb_token">
+                <stringProp name="RegexExtractor.useHeaders">false</stringProp>
+                <stringProp name="RegexExtractor.refname">crumb_token</stringProp>
+                <stringProp name="RegexExtractor.regex">name="crumb"\s+value="([^"]+)"</stringProp>
+                <stringProp name="RegexExtractor.template">$1$</stringProp>
+                <stringProp name="RegexExtractor.default">CRUMB_NOT_FOUND</stringProp>
+                <stringProp name="RegexExtractor.match_no">1</stringProp>
+              </RegexExtractor>
+              <hashTree/>
+            </hashTree>
+
+            <!-- 22b4 POST site-contact-details; redirects to recycling-operation-details. Name must not contain digits -->
+            <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                              testname="22b4 POST add-overseas-site site-contact-details">
+              <stringProp name="HTTPSampler.path">/accreditation/add-overseas-site/${applicationId}/site-contact-details</stringProp>
+              <stringProp name="HTTPSampler.method">POST</stringProp>
+              <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+              <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+                <collectionProp name="Arguments.arguments">
+                  <elementProp name="crumb" elementType="HTTPArgument">
+                    <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                    <stringProp name="Argument.name">crumb</stringProp>
+                    <stringProp name="Argument.value">${crumb_token}</stringProp>
+                  </elementProp>
+                  <elementProp name="siteContactName" elementType="HTTPArgument">
+                    <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                    <stringProp name="Argument.name">siteContactName</stringProp>
+                    <stringProp name="Argument.value">Site Manager</stringProp>
+                  </elementProp>
+                  <elementProp name="siteContactEmail" elementType="HTTPArgument">
+                    <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                    <stringProp name="Argument.name">siteContactEmail</stringProp>
+                    <stringProp name="Argument.value">site-${currentOrsEditId}@perftest-ors.example.com</stringProp>
+                  </elementProp>
+                  <elementProp name="siteContactPhone" elementType="HTTPArgument">
+                    <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                    <stringProp name="Argument.name">siteContactPhone</stringProp>
+                    <stringProp name="Argument.value">+49 40 1234567</stringProp>
+                  </elementProp>
+                </collectionProp>
+              </elementProp>
+            </HTTPSamplerProxy>
+            <hashTree>
+              <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                                 testname="Assert 200">
+                <collectionProp name="Asserion.test_strings">
+                  <stringProp name="200">200</stringProp>
+                </collectionProp>
+                <intProp name="Assertion.test_type">2</intProp>
+                <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+              </ResponseAssertion>
+              <hashTree/>
+              <RegexExtractor guiclass="RegexExtractorGui" testclass="RegexExtractor"
+                              testname="Extract crumb_token">
+                <stringProp name="RegexExtractor.useHeaders">false</stringProp>
+                <stringProp name="RegexExtractor.refname">crumb_token</stringProp>
+                <stringProp name="RegexExtractor.regex">name="crumb"\s+value="([^"]+)"</stringProp>
+                <stringProp name="RegexExtractor.template">$1$</stringProp>
+                <stringProp name="RegexExtractor.default">CRUMB_NOT_FOUND</stringProp>
+                <stringProp name="RegexExtractor.match_no">1</stringProp>
+              </RegexExtractor>
+              <hashTree/>
+            </hashTree>
+
+            <!-- 22b5 POST recycling-operation-details; redirects to basel-convention-and-oecd-code. Needs a core code valid for the material: R4 Steel/Aluminium, R5 Glass, R3 otherwise -->
+            <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                              testname="22b5 POST add-overseas-site recycling-operation-details">
+              <stringProp name="HTTPSampler.path">/accreditation/add-overseas-site/${applicationId}/recycling-operation-details</stringProp>
+              <stringProp name="HTTPSampler.method">POST</stringProp>
+              <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+              <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+                <collectionProp name="Arguments.arguments">
+                  <elementProp name="crumb" elementType="HTTPArgument">
+                    <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                    <stringProp name="Argument.name">crumb</stringProp>
+                    <stringProp name="Argument.value">${crumb_token}</stringProp>
+                  </elementProp>
+                  <elementProp name="recyclingOperationCodes" elementType="HTTPArgument">
+                    <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                    <stringProp name="Argument.name">recyclingOperationCodes</stringProp>
+                    <stringProp name="Argument.value">${__groovy(['Steel':'R4'\,'Aluminium':'R4'\,'Glass':'R5'][vars.get('material')] ?: 'R3',)}</stringProp>
+                  </elementProp>
+                </collectionProp>
+              </elementProp>
+            </HTTPSamplerProxy>
+            <hashTree>
+              <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                                 testname="Assert 200">
+                <collectionProp name="Asserion.test_strings">
+                  <stringProp name="200">200</stringProp>
+                </collectionProp>
+                <intProp name="Assertion.test_type">2</intProp>
+                <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+              </ResponseAssertion>
+              <hashTree/>
+              <RegexExtractor guiclass="RegexExtractorGui" testclass="RegexExtractor"
+                              testname="Extract crumb_token">
+                <stringProp name="RegexExtractor.useHeaders">false</stringProp>
+                <stringProp name="RegexExtractor.refname">crumb_token</stringProp>
+                <stringProp name="RegexExtractor.regex">name="crumb"\s+value="([^"]+)"</stringProp>
+                <stringProp name="RegexExtractor.template">$1$</stringProp>
+                <stringProp name="RegexExtractor.default">CRUMB_NOT_FOUND</stringProp>
+                <stringProp name="RegexExtractor.match_no">1</stringProp>
+              </RegexExtractor>
+              <hashTree/>
+            </hashTree>
+
+            <!-- 22b6 POST basel-convention-and-oecd-code; redirects to repatriated-loads. Any code from the Basel/OECD list passes -->
+            <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                              testname="22b6 POST add-overseas-site basel-convention-and-oecd-code">
+              <stringProp name="HTTPSampler.path">/accreditation/add-overseas-site/${applicationId}/basel-convention-and-oecd-code</stringProp>
+              <stringProp name="HTTPSampler.method">POST</stringProp>
+              <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+              <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+                <collectionProp name="Arguments.arguments">
+                  <elementProp name="crumb" elementType="HTTPArgument">
+                    <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                    <stringProp name="Argument.name">crumb</stringProp>
+                    <stringProp name="Argument.value">${crumb_token}</stringProp>
+                  </elementProp>
+                  <elementProp name="visibleCount" elementType="HTTPArgument">
+                    <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                    <stringProp name="Argument.name">visibleCount</stringProp>
+                    <stringProp name="Argument.value">1</stringProp>
+                  </elementProp>
+                  <elementProp name="code-0" elementType="HTTPArgument">
+                    <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                    <stringProp name="Argument.name">code-0</stringProp>
+                    <stringProp name="Argument.value">B1010</stringProp>
+                  </elementProp>
+                  <elementProp name="action" elementType="HTTPArgument">
+                    <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                    <stringProp name="Argument.name">action</stringProp>
+                    <stringProp name="Argument.value">continue</stringProp>
+                  </elementProp>
+                </collectionProp>
+              </elementProp>
+            </HTTPSamplerProxy>
+            <hashTree>
+              <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                                 testname="Assert 200">
+                <collectionProp name="Asserion.test_strings">
+                  <stringProp name="200">200</stringProp>
+                </collectionProp>
+                <intProp name="Assertion.test_type">2</intProp>
+                <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+              </ResponseAssertion>
+              <hashTree/>
+              <RegexExtractor guiclass="RegexExtractorGui" testclass="RegexExtractor"
+                              testname="Extract crumb_token">
+                <stringProp name="RegexExtractor.useHeaders">false</stringProp>
+                <stringProp name="RegexExtractor.refname">crumb_token</stringProp>
+                <stringProp name="RegexExtractor.regex">name="crumb"\s+value="([^"]+)"</stringProp>
+                <stringProp name="RegexExtractor.template">$1$</stringProp>
+                <stringProp name="RegexExtractor.default">CRUMB_NOT_FOUND</stringProp>
+                <stringProp name="RegexExtractor.match_no">1</stringProp>
+              </RegexExtractor>
+              <hashTree/>
+            </hashTree>
+
+            <!-- 22b7 POST repatriated-loads; redirects to conditions-of-export for Steel/Aluminium, check-your-answers otherwise -->
+            <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                              testname="22b7 POST add-overseas-site repatriated-loads">
+              <stringProp name="HTTPSampler.path">/accreditation/add-overseas-site/${applicationId}/repatriated-loads</stringProp>
+              <stringProp name="HTTPSampler.method">POST</stringProp>
+              <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+              <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+                <collectionProp name="Arguments.arguments">
+                  <elementProp name="crumb" elementType="HTTPArgument">
+                    <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                    <stringProp name="Argument.name">crumb</stringProp>
+                    <stringProp name="Argument.value">${crumb_token}</stringProp>
+                  </elementProp>
+                  <elementProp name="repatriatedLoads" elementType="HTTPArgument">
+                    <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                    <stringProp name="Argument.name">repatriatedLoads</stringProp>
+                    <stringProp name="Argument.value">Rejected loads are returned to the UK exporter at the exporter cost and reported to the regulator.</stringProp>
+                  </elementProp>
+                </collectionProp>
+              </elementProp>
+            </HTTPSamplerProxy>
+            <hashTree>
+              <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                                 testname="Assert 200">
+                <collectionProp name="Asserion.test_strings">
+                  <stringProp name="200">200</stringProp>
+                </collectionProp>
+                <intProp name="Assertion.test_type">2</intProp>
+                <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+              </ResponseAssertion>
+              <hashTree/>
+              <RegexExtractor guiclass="RegexExtractorGui" testclass="RegexExtractor"
+                              testname="Extract crumb_token">
+                <stringProp name="RegexExtractor.useHeaders">false</stringProp>
+                <stringProp name="RegexExtractor.refname">crumb_token</stringProp>
+                <stringProp name="RegexExtractor.regex">name="crumb"\s+value="([^"]+)"</stringProp>
+                <stringProp name="RegexExtractor.template">$1$</stringProp>
+                <stringProp name="RegexExtractor.default">CRUMB_NOT_FOUND</stringProp>
+                <stringProp name="RegexExtractor.match_no">1</stringProp>
+              </RegexExtractor>
+              <hashTree/>
+            </hashTree>
+
+            <!-- Conditions of export is only asked for Steel/Aluminium -->
+            <IfController guiclass="IfControllerPanel" testclass="IfController"
+                          testname="If Steel/Aluminium: conditions of export">
+              <stringProp name="IfController.condition">${__groovy(['Steel'\,'Aluminium'].contains(vars.get('material')),)}</stringProp>
+              <boolProp name="IfController.evaluateAll">false</boolProp>
+              <boolProp name="IfController.useExpression">true</boolProp>
+            </IfController>
+            <hashTree>
+              <!-- 22b8 POST conditions-of-export; redirects to check-your-answers -->
+              <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                                testname="22b8 POST add-overseas-site conditions-of-export">
+                <stringProp name="HTTPSampler.path">/accreditation/add-overseas-site/${applicationId}/conditions-of-export</stringProp>
+                <stringProp name="HTTPSampler.method">POST</stringProp>
+                <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+                <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+                  <collectionProp name="Arguments.arguments">
+                    <elementProp name="crumb" elementType="HTTPArgument">
+                      <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                      <stringProp name="Argument.name">crumb</stringProp>
+                      <stringProp name="Argument.value">${crumb_token}</stringProp>
+                    </elementProp>
+                    <elementProp name="conditionsOfExport" elementType="HTTPArgument">
+                      <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                      <stringProp name="Argument.name">conditionsOfExport</stringProp>
+                      <stringProp name="Argument.value">yes</stringProp>
+                    </elementProp>
+                  </collectionProp>
+                </elementProp>
+              </HTTPSamplerProxy>
+              <hashTree>
+                <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                                   testname="Assert 200">
+                  <collectionProp name="Asserion.test_strings">
+                    <stringProp name="200">200</stringProp>
+                  </collectionProp>
+                  <intProp name="Assertion.test_type">2</intProp>
+                  <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+                </ResponseAssertion>
+                <hashTree/>
+                <RegexExtractor guiclass="RegexExtractorGui" testclass="RegexExtractor"
+                                testname="Extract crumb_token">
+                  <stringProp name="RegexExtractor.useHeaders">false</stringProp>
+                  <stringProp name="RegexExtractor.refname">crumb_token</stringProp>
+                  <stringProp name="RegexExtractor.regex">name="crumb"\s+value="([^"]+)"</stringProp>
+                  <stringProp name="RegexExtractor.template">$1$</stringProp>
+                  <stringProp name="RegexExtractor.default">CRUMB_NOT_FOUND</stringProp>
+                  <stringProp name="RegexExtractor.match_no">1</stringProp>
+                </RegexExtractor>
+                <hashTree/>
+              </hashTree>
+            </hashTree>
+
+            <!-- 22b9 POST check-your-answers (confirm); saves the site, redirects back to select-overseas-sites (400 here means the site is still incomplete) -->
+            <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy"
+                              testname="22b9 POST add-overseas-site check-your-answers (confirm)">
+              <stringProp name="HTTPSampler.path">/accreditation/add-overseas-site/${applicationId}/check-your-answers</stringProp>
+              <stringProp name="HTTPSampler.method">POST</stringProp>
+              <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+              <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+                <collectionProp name="Arguments.arguments">
+                  <elementProp name="crumb" elementType="HTTPArgument">
+                    <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                    <stringProp name="Argument.name">crumb</stringProp>
+                    <stringProp name="Argument.value">${crumb_token}</stringProp>
+                  </elementProp>
+                  <elementProp name="action" elementType="HTTPArgument">
+                    <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                    <stringProp name="Argument.name">action</stringProp>
+                    <stringProp name="Argument.value">confirm</stringProp>
+                  </elementProp>
+                </collectionProp>
+              </elementProp>
+            </HTTPSamplerProxy>
+            <hashTree>
+              <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion"
+                                 testname="Assert 200">
+                <collectionProp name="Asserion.test_strings">
+                  <stringProp name="200">200</stringProp>
+                </collectionProp>
+                <intProp name="Assertion.test_type">2</intProp>
+                <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+              </ResponseAssertion>
+              <hashTree/>
+              <RegexExtractor guiclass="RegexExtractorGui" testclass="RegexExtractor"
+                              testname="Extract crumb_token">
+                <stringProp name="RegexExtractor.useHeaders">false</stringProp>
+                <stringProp name="RegexExtractor.refname">crumb_token</stringProp>
+                <stringProp name="RegexExtractor.regex">name="crumb"\s+value="([^"]+)"</stringProp>
+                <stringProp name="RegexExtractor.template">$1$</stringProp>
+                <stringProp name="RegexExtractor.default">CRUMB_NOT_FOUND</stringProp>
+                <stringProp name="RegexExtractor.match_no">1</stringProp>
+              </RegexExtractor>
+              <hashTree/>
+            </hashTree>
           </hashTree>
 
           <!-- 22c POST select-overseas-sites (continue) -->
